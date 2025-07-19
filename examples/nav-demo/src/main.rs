@@ -1,7 +1,9 @@
 use eframe::egui;
-use egui::Frame;
+use egui::{accesskit::Vec2, Frame, RichText, ScrollArea, Vec2b};
 use egui_demo_lib::{easy_mark::EasyMarkEditor, ColorTest};
-use egui_nav::{DefaultNavTitle, DefaultTitleResponse, Nav, NavAction, NavUiType, PopupSheet};
+use egui_nav::{
+    DefaultNavTitle, DefaultTitleResponse, DragConductor, Nav, NavAction, NavUiType, PopupSheet,
+};
 use std::fmt;
 
 fn test_routes() -> Vec<Route> {
@@ -24,6 +26,7 @@ fn main() -> Result<(), eframe::Error> {
                 returning: false,
                 routes: test_routes(),
                 popup: None,
+                drag_conductor: DragConductor::default(),
             }))
         }),
     )
@@ -59,6 +62,7 @@ struct MyApp {
     popup: Option<Route>,
     navigating: bool,
     returning: bool,
+    drag_conductor: DragConductor,
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -146,55 +150,68 @@ fn nav_ui(ui: &mut egui::Ui, app: &mut MyApp) {
         }
     }
 
-    let response = Nav::new(&app.routes)
+    let nav = Nav::new(&app.routes)
         .navigating(app.navigating)
-        .returning(app.returning)
-        .show(ui, |ui, typ, nav| match typ {
-            NavUiType::Title => DefaultNavTitle::default()
-                .ui(ui, nav.routes())
-                .map(|n| match n {
-                    DefaultTitleResponse::Back => OurNavAction::Returning,
-                }),
+        .returning(app.returning);
+    let response = nav.show(ui, |ui, typ, nav| match typ {
+        NavUiType::Title => DefaultNavTitle::default()
+            .ui(ui, nav.routes())
+            .map(|n| match n {
+                DefaultTitleResponse::Back => OurNavAction::Returning,
+            }),
 
-            NavUiType::Body => match nav.top() {
-                Route::Editor => {
-                    ui.vertical(|ui| {
-                        let mut action: Option<OurNavAction> = None;
+        NavUiType::Body => match nav.top() {
+            Route::Editor => {
+                ui.vertical(|ui| {
+                    let mut action: Option<OurNavAction> = None;
 
-                        if ui.button("Color Test").clicked() {
-                            action = Some(OurNavAction::Navigating(Route::ColorTest));
+                    if ui.button("Color Test").clicked() {
+                        action = Some(OurNavAction::Navigating(Route::ColorTest));
+                    }
+
+                    if ui.button("Popup color test").clicked() {
+                        action = Some(OurNavAction::Popup(Route::ColorTest));
+                    }
+
+                    if nav.routes().len() > 1 && ui.button("Back").clicked() {
+                        action = Some(OurNavAction::Returning);
+                    }
+
+                    // EasyMarkEditor::default().ui(ui);
+                    let id = egui::Id::new("test_scroll");
+                    ScrollArea::vertical().id_salt(id).show(ui, |ui| {
+                        for _ in 0..100 {
+                            let (rect, resp) =
+                                ui.allocate_exact_size(egui::vec2(48.0, 48.0), egui::Sense::drag());
+                            ui.painter().circle_filled(
+                                rect.center(),
+                                24.0,
+                                egui::Color32::DARK_RED,
+                            );
                         }
+                    });
 
-                        if ui.button("Popup color test").clicked() {
-                            action = Some(OurNavAction::Popup(Route::ColorTest));
-                        }
+                    action
+                })
+                .inner
+            }
 
-                        if nav.routes().len() > 1 && ui.button("Back").clicked() {
-                            action = Some(OurNavAction::Returning);
-                        }
-
-                        EasyMarkEditor::default().ui(ui);
-                        action
-                    })
-                    .inner
-                }
-
-                Route::ColorTest => {
-                    ui.vertical(|ui| {
-                        let mut action: Option<OurNavAction> = None;
-                        if ui.button("Editor").clicked() {
-                            action = Some(OurNavAction::Navigating(Route::Editor));
-                        }
-                        if nav.routes().len() > 1 && ui.button("Back").clicked() {
-                            action = Some(OurNavAction::Returning);
-                        }
-                        ColorTest::default().ui(ui);
-                        action
-                    })
-                    .inner
-                }
-            },
-        });
+            Route::ColorTest => {
+                ui.vertical(|ui| {
+                    let mut action: Option<OurNavAction> = None;
+                    if ui.button("Editor").clicked() {
+                        action = Some(OurNavAction::Navigating(Route::Editor));
+                    }
+                    if nav.routes().len() > 1 && ui.button("Back").clicked() {
+                        action = Some(OurNavAction::Returning);
+                    }
+                    ColorTest::default().ui(ui);
+                    action
+                })
+                .inner
+            }
+        },
+    });
 
     if let Some(action) = response.response.or(response.title_response) {
         match action {
@@ -220,6 +237,11 @@ fn nav_ui(ui: &mut egui::Ui, app: &mut MyApp) {
         } else if let NavAction::Navigated = action {
             app.navigating = false;
         }
+    }
+
+    if let Some(drag_id) = response.drag_id {
+        app.drag_conductor
+            .update(drag_id, egui::Id::new("test_scroll"), ui.ctx());
     }
 }
 

@@ -140,6 +140,7 @@ pub struct NavResponse<R> {
     pub response: R,
     pub title_response: R,
     pub action: Option<NavAction>,
+    pub drag_id: Option<egui::Id>,
 }
 
 impl<'a, Route: Clone> Nav<'a, Route> {
@@ -222,6 +223,7 @@ impl<'a, Route: Clone> Nav<'a, Route> {
         let id = ui.id().with(("nav", self.id_source));
         let mut state = State::load(ui.ctx(), id).unwrap_or_default();
 
+        let mut drag_id = None;
         // We only handle dragging when there is more than 1 route
         if self.route.len() > 1 {
             let drag = Drag::new(
@@ -230,6 +232,7 @@ impl<'a, Route: Clone> Nav<'a, Route> {
                 ui.available_rect_before_wrap(),
                 state.offset,
             );
+            drag_id = Some(drag.id);
             if let Some(action) = drag.handle(ui) {
                 state.action = Some(action);
             }
@@ -331,6 +334,7 @@ impl<'a, Route: Clone> Nav<'a, Route> {
             );
 
             NavResponse {
+                drag_id,
                 response,
                 title_response,
                 action: state.action,
@@ -370,6 +374,106 @@ fn spring_animate(offset: f32, target: f32, left: bool) -> Option<f32> {
     }
 }
 
+#[derive(Default)]
+pub struct DragConductor {
+    state: Option<DragState>,
+}
+
+struct DragState {
+    start_pos: egui::Pos2,
+    cur_direction: DragDirection,
+}
+
+impl DragConductor {
+    pub fn update(&mut self, horizontal: egui::Id, vertical: egui::Id, ctx: &egui::Context) {
+        // let horiz_being_dragged = ctx.is_being_dragged(horizontal);
+        // let vert_being_dragged = ctx.is_being_dragged(vertical);
+        // tracing::info!(
+        //     "dragging horiz: {horiz_being_dragged}, dragging vert: {vert_being_dragged}"
+        // );
+        // tracing::info!("drag started: {:?}", ctx.drag_started_id());
+        // tracing::info!("dragged: {:?}", ctx.dragged_id());
+
+        // if ctx.drag_stopped_id().is_some() {
+        //     self.start_pos = None;
+        //     return;
+        // }
+
+        if !ctx.input(|i| i.pointer.primary_down()) {
+            println!("Primary not down, returning");
+            return;
+        }
+
+        if let Some(drag_id) = ctx.drag_started_id() {
+            let Some(cur_pos) = ctx.pointer_interact_pos() else {
+                println!("no pointer");
+                return;
+            };
+
+            let cur_direction = if drag_id == horizontal {
+                DragDirection::Horizontal
+            } else {
+                DragDirection::Vertical
+            };
+
+            self.state = Some(DragState {
+                start_pos: cur_pos,
+                cur_direction,
+            });
+
+            println!("just got drag");
+            return;
+        }
+
+        let Some(state) = &mut self.state else {
+            println!("no state");
+            return;
+        };
+
+        let Some(cur_pos) = ctx.pointer_interact_pos() else {
+            println!("no pointer 2");
+            return;
+        };
+
+        // if !horiz_being_dragged && !vert_being_dragged {
+        //     return;
+        // }
+
+        let dx = (state.start_pos.x - cur_pos.x).abs();
+        let dy = (state.start_pos.y - cur_pos.y).abs();
+
+        println!(
+            "start pos: {:?}, cur pos: {:?}, dx: {dx}, dy: {dy}",
+            state.start_pos, cur_pos
+        );
+
+        let new_direction = if dx > dy {
+            DragDirection::Horizontal
+        } else {
+            DragDirection::Vertical
+        };
+
+        if new_direction == DragDirection::Horizontal
+            && state.cur_direction == DragDirection::Vertical
+        {
+            // drag is occuring mostly in the horizontal direction
+            ctx.set_dragged_id(horizontal);
+            let new_dir = DragDirection::Horizontal;
+            println!("Set new direction: {:?}", new_dir);
+            state.cur_direction = new_dir;
+        } else if new_direction == DragDirection::Vertical
+            && state.cur_direction == DragDirection::Horizontal
+        {
+            // drag is occuring mostly in the vertical direction
+            let new_dir = DragDirection::Vertical;
+            println!("Set new direction: {:?}", new_dir);
+            state.cur_direction = new_dir;
+            ctx.set_dragged_id(vertical);
+        }
+    }
+}
+
+#[derive(Debug, PartialEq)]
 enum DragDirection {
     Horizontal,
     Vertical,
