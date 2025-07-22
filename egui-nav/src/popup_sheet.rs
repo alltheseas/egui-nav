@@ -156,12 +156,14 @@ impl<'a, Route: Clone> PopupSheet<'a, Route> {
 
         state.store(ui.ctx(), id);
 
-        let response = render_fg(
+        let (response, _) = render_fg(
             ui,
             state.is_transitioning(),
             None,
             content_rect,
             content_rect,
+            None,
+            None,
             |ui| {
                 if matches!(state.action, Some(NavAction::Returned(_))) {
                     show_route(ui, NavUiType::Body, self.bg_route)

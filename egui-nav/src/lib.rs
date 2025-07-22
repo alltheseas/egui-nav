@@ -14,6 +14,7 @@ pub struct Nav<'a, Route: Clone> {
     route: &'a [Route],
     navigating: bool,
     returning: bool,
+    conductor: Option<&'a DragConductor>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -141,6 +142,7 @@ pub struct NavResponse<R> {
     pub title_response: R,
     pub action: Option<NavAction>,
     pub drag_id: Option<egui::Id>,
+    pub conductor: Option<DragConductor>,
 }
 
 impl<'a, Route: Clone> Nav<'a, Route> {
@@ -157,6 +159,7 @@ impl<'a, Route: Clone> Nav<'a, Route> {
             navigating,
             returning,
             route,
+            conductor: None,
         }
     }
 
@@ -176,6 +179,11 @@ impl<'a, Route: Clone> Nav<'a, Route> {
     /// previous view
     pub fn returning(mut self, returning: bool) -> Self {
         self.returning = returning;
+        self
+    }
+
+    pub fn with_conductor(mut self, conductor: &'a DragConductor) -> Self {
+        self.conductor = Some(conductor);
         self
     }
 
@@ -312,12 +320,15 @@ impl<'a, Route: Clone> Nav<'a, Route> {
                 ),
             );
 
-            let response = render_fg(
+            // println!("Rendering FG");
+            let (response, conductor) = render_fg(
                 ui,
                 transitioning,
                 Some(Vec2::new(state.offset, 0.0)),
                 clip,
                 available_rect,
+                self.conductor,
+                drag_id,
                 |ui| {
                     if matches!(state.action, Some(NavAction::Returned(_))) {
                         // to avoid a flicker, render the popped route when we
@@ -338,6 +349,7 @@ impl<'a, Route: Clone> Nav<'a, Route> {
                 response,
                 title_response,
                 action: state.action,
+                conductor,
             }
         }
     }
@@ -374,54 +386,25 @@ fn spring_animate(offset: f32, target: f32, left: bool) -> Option<f32> {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Clone, Debug)]
 pub struct DragConductor {
     state: Option<DragState>,
 }
 
+#[derive(Clone, Debug)]
 struct DragState {
     start_pos: egui::Pos2,
     cur_direction: DragDirection,
 }
 
 impl DragConductor {
+    /// should call BEFORE both drag directions get rendered
     pub fn update(&mut self, horizontal: egui::Id, vertical: egui::Id, ctx: &egui::Context) {
-        // let horiz_being_dragged = ctx.is_being_dragged(horizontal);
-        // let vert_being_dragged = ctx.is_being_dragged(vertical);
-        // tracing::info!(
-        //     "dragging horiz: {horiz_being_dragged}, dragging vert: {vert_being_dragged}"
-        // );
-        // tracing::info!("drag started: {:?}", ctx.drag_started_id());
-        // tracing::info!("dragged: {:?}", ctx.dragged_id());
+        let horiz_being_dragged = ctx.is_being_dragged(horizontal);
+        let vert_being_dragged = ctx.is_being_dragged(vertical);
 
-        // if ctx.drag_stopped_id().is_some() {
-        //     self.start_pos = None;
-        //     return;
-        // }
-
-        if !ctx.input(|i| i.pointer.primary_down()) {
-            println!("Primary not down, returning");
-            return;
-        }
-
-        if let Some(drag_id) = ctx.drag_started_id() {
-            let Some(cur_pos) = ctx.pointer_interact_pos() else {
-                println!("no pointer");
-                return;
-            };
-
-            let cur_direction = if drag_id == horizontal {
-                DragDirection::Horizontal
-            } else {
-                DragDirection::Vertical
-            };
-
-            self.state = Some(DragState {
-                start_pos: cur_pos,
-                cur_direction,
-            });
-
-            println!("just got drag");
+        if !horiz_being_dragged && !vert_being_dragged {
+            self.state = None;
             return;
         }
 
@@ -431,13 +414,9 @@ impl DragConductor {
         };
 
         let Some(cur_pos) = ctx.pointer_interact_pos() else {
-            println!("no pointer 2");
+            println!("no pointer");
             return;
         };
-
-        // if !horiz_being_dragged && !vert_being_dragged {
-        //     return;
-        // }
 
         let dx = (state.start_pos.x - cur_pos.x).abs();
         let dy = (state.start_pos.y - cur_pos.y).abs();
@@ -471,9 +450,43 @@ impl DragConductor {
             ctx.set_dragged_id(vertical);
         }
     }
+
+    /// should call AFTER both drag directions rendered
+    pub fn check_for_drag_start(
+        &mut self,
+        ctx: &egui::Context,
+        horizontal: egui::Id,
+        vertical: egui::Id,
+    ) {
+        if !ctx.input(|i| i.pointer.primary_down()) {
+            self.state = None;
+            return;
+        }
+
+        let Some(drag_id) = ctx.drag_started_id() else {
+            return;
+        };
+
+        let cur_direction = if drag_id == horizontal {
+            DragDirection::Horizontal
+        } else if drag_id == vertical {
+            DragDirection::Vertical
+        } else {
+            return;
+        };
+
+        let Some(cur_pos) = ctx.pointer_interact_pos() else {
+            return;
+        };
+
+        self.state = Some(DragState {
+            start_pos: cur_pos,
+            cur_direction,
+        });
+    }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 enum DragDirection {
     Horizontal,
     Vertical,
@@ -588,8 +601,10 @@ pub(crate) fn render_fg<R>(
     translate_vec: Option<egui::Vec2>, // whether to translate the rendered route
     clip: egui::Rect,
     available_rect: egui::Rect,
+    conductor: Option<&DragConductor>,
+    drag_id: Option<egui::Id>,
     mut render_route: impl FnMut(&mut egui::Ui) -> R,
-) -> R {
+) -> (R, Option<DragConductor>) {
     let layer_id = if transitioning {
         // when transitioning, we need a new layer id otherwise the
         // view transform will transform more things than we want
@@ -611,14 +626,31 @@ pub(crate) fn render_fg<R>(
     );
     ui.set_clip_rect(clip);
 
+    let tmp_scroll_area_id = ui
+        .id()
+        .with(egui::Id::new(egui::Id::new(("threadscroll", 0))))
+        .with("area");
+
+    let mut new_drag = None;
+    if let Some(drag_id) = drag_id {
+        // println!("Have drag id: {:?}", drag_id);
+        if let Some(conductor) = conductor {
+            // println!("have conductor: {:?}", conductor);
+            let mut new_conductor = conductor.clone();
+
+            new_conductor.update(drag_id, tmp_scroll_area_id, ui.ctx());
+            new_drag = Some(new_conductor);
+        }
+    }
+
     let res = render_route(&mut ui);
 
     let Some(translate_vec) = translate_vec else {
-        return res;
+        return (res, new_drag);
     };
 
     if translate_vec == Vec2::ZERO {
-        return res;
+        return (res, new_drag);
     }
 
     ui.ctx().transform_layer_shapes(
@@ -626,5 +658,11 @@ pub(crate) fn render_fg<R>(
         egui::emath::TSTransform::from_translation(translate_vec),
     );
 
-    res
+    if let Some(drag_id) = drag_id {
+        if let Some(conductor) = &mut new_drag {
+            conductor.check_for_drag_start(ui.ctx(), drag_id, tmp_scroll_area_id);
+        }
+    }
+
+    (res, new_drag)
 }
