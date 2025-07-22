@@ -628,6 +628,10 @@ pub(crate) fn render_fg<R>(
         // layers
         ui.layer_id()
     };
+    let tmp_scroll_area_id = ui
+        .id()
+        .with(egui::Id::new(egui::Id::new(("threadscroll", 0))))
+        .with("area");
 
     let mut ui = egui::Ui::new(
         ui.ctx().clone(),
@@ -637,11 +641,6 @@ pub(crate) fn render_fg<R>(
             .max_rect(available_rect),
     );
     ui.set_clip_rect(clip);
-
-    let tmp_scroll_area_id = ui
-        .id()
-        .with(egui::Id::new(egui::Id::new(("threadscroll", 0))))
-        .with("area");
 
     let mut new_drag = None;
     if let Some(conductor) = conductor {
