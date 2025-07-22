@@ -321,7 +321,6 @@ impl<'a, Route: Clone> Nav<'a, Route> {
                 ),
             );
 
-            // println!("Rendering FG");
             let (response, conductor) = render_fg(
                 ui,
                 transitioning,
@@ -460,14 +459,7 @@ impl DragConductor {
         horizontal: egui::Id,
         vertical: egui::Id,
     ) {
-        if !ctx.input(|i| i.pointer.primary_down()) {
-            // println!("no primary down. clearing state");
-            self.state = None;
-            return;
-        }
-
         let Some(drag_id) = ctx.drag_started_id() else {
-            // println!("no drag id. returning");
             return;
         };
 
@@ -476,12 +468,10 @@ impl DragConductor {
         } else if drag_id == vertical {
             DragDirection::Vertical
         } else {
-            // println!("drag id doesn't match horiz or vert");
             return;
         };
 
         let Some(cur_pos) = ctx.pointer_interact_pos() else {
-            // println!("no pointer");
             return;
         };
 
@@ -654,18 +644,23 @@ pub(crate) fn render_fg<R>(
         .with("area");
 
     let mut new_drag = None;
-    if let Some(drag_id) = drag_id {
-        // println!("Have drag id: {:?}", drag_id);
-        if let Some(conductor) = conductor {
-            // println!("have conductor: {:?}", conductor);
-            let mut new_conductor = conductor.clone();
+    if let Some(conductor) = conductor {
+        let mut new_conductor = conductor.clone();
 
+        if let Some(drag_id) = drag_id {
             new_conductor.update(drag_id, tmp_scroll_area_id, ui.ctx());
-            new_drag = Some(new_conductor);
         }
+
+        new_drag = Some(new_conductor);
     }
 
     let res = render_route(&mut ui);
+
+    if let Some(drag_id) = drag_id {
+        if let Some(conductor) = &mut new_drag {
+            conductor.check_for_drag_start(ui.ctx(), drag_id, tmp_scroll_area_id);
+        }
+    }
 
     let Some(translate_vec) = translate_vec else {
         return (res, new_drag);
@@ -679,12 +674,6 @@ pub(crate) fn render_fg<R>(
         ui.layer_id(),
         egui::emath::TSTransform::from_translation(translate_vec),
     );
-
-    if let Some(drag_id) = drag_id {
-        if let Some(conductor) = &mut new_drag {
-            conductor.check_for_drag_start(ui.ctx(), drag_id, tmp_scroll_area_id);
-        }
-    }
 
     (res, new_drag)
 }
