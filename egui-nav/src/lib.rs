@@ -66,7 +66,8 @@ impl NavAction {
     ) {
         match self {
             NavAction::Dragging => {
-                state.offset += drag_delta(ui, drag_direction);
+                let drag_delta = drag_delta(ui, drag_direction);
+                state.offset += drag_delta;
                 if state.offset < 0.0 {
                     state.offset = 0.0;
                 }
@@ -241,7 +242,7 @@ impl<'a, Route: Clone> Nav<'a, Route> {
                 state.offset,
             );
             drag_id = Some(drag.id);
-            if let Some(action) = drag.handle(ui) {
+            if let Some(action) = drag.handle(ui, self.conductor) {
                 state.action = Some(action);
             }
         }
@@ -404,6 +405,7 @@ impl DragConductor {
         let vert_being_dragged = ctx.is_being_dragged(vertical);
 
         if !horiz_being_dragged && !vert_being_dragged {
+            println!("No horiz & no vert drag. clearing state");
             self.state = None;
             return;
         }
@@ -459,11 +461,13 @@ impl DragConductor {
         vertical: egui::Id,
     ) {
         if !ctx.input(|i| i.pointer.primary_down()) {
+            // println!("no primary down. clearing state");
             self.state = None;
             return;
         }
 
         let Some(drag_id) = ctx.drag_started_id() else {
+            // println!("no drag id. returning");
             return;
         };
 
@@ -472,10 +476,12 @@ impl DragConductor {
         } else if drag_id == vertical {
             DragDirection::Vertical
         } else {
+            // println!("drag id doesn't match horiz or vert");
             return;
         };
 
         let Some(cur_pos) = ctx.pointer_interact_pos() else {
+            // println!("no pointer");
             return;
         };
 
@@ -521,15 +527,31 @@ impl Drag {
         }
     }
 
-    pub(crate) fn handle(self, ui: &mut egui::Ui) -> Option<NavAction> {
+    pub(crate) fn handle(
+        self,
+        ui: &mut egui::Ui,
+        conductor: Option<&DragConductor>,
+    ) -> Option<NavAction> {
         // Drag contents to transition back.
         // We must do this BEFORE adding content to the `Nav`,
         // or we will steal input from the widgets we contain.
         let content_response = ui.interact(self.content_rect, self.id, Sense::drag());
 
+        let switched_dir = 's: {
+            if let Some(conductor) = conductor {
+                if let Some(state) = &conductor.state {
+                    if state.cur_direction != self.direction {
+                        break 's true;
+                    }
+                }
+            }
+
+            false
+        };
+
         if content_response.dragged() {
             return Some(NavAction::Dragging);
-        } else if content_response.drag_stopped() {
+        } else if content_response.drag_stopped() || switched_dir {
             // we've stopped dragging, check to see if the offset is
             // passed a certain point, to determine if we should return
             // or animate back

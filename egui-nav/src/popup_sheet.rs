@@ -112,7 +112,7 @@ impl<'a, Route: Clone> PopupSheet<'a, Route> {
             offset_from_rest,
         );
 
-        if let Some(action) = drag.handle(ui) {
+        if let Some(action) = drag.handle(ui, None) {
             state.action = Some(action);
         }
 
