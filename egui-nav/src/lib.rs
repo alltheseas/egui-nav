@@ -3,11 +3,13 @@ use egui::{emath::TSTransform, vec2, LayerId, Order, Rect, Vec2};
 
 mod default_ui;
 mod drag;
+mod drawer;
 mod popup_sheet;
 mod ui;
 mod util;
 
 pub use default_ui::{DefaultNavTitle, DefaultTitleResponse};
+pub use drawer::NavDrawer;
 pub use popup_sheet::{Percent, PopupResponse, PopupSheet};
 pub use ui::NavUiType;
 
@@ -306,9 +308,16 @@ impl<'a, Route: Clone> Nav<'a, Route> {
 
             let strength = 50.0; // fade strength (max is 255)
             let alpha = ((1.0 - (state.offset / available_rect.width())) * strength) as u8;
-            let min_rect = render_bg(ui, Some(translate_vec), clip, available_rect, alpha, |ui| {
-                show_route(ui, NavUiType::Body, &bg_nav);
-            });
+            let min_rect = render_bg(
+                ui,
+                Some(translate_vec),
+                clip,
+                available_rect,
+                Some(alpha),
+                |ui| {
+                    show_route(ui, NavUiType::Body, &bg_nav);
+                },
+            );
 
             state.popped_min_rect = Some(min_rect);
         }
@@ -323,9 +332,21 @@ impl<'a, Route: Clone> Nav<'a, Route> {
                 ),
             );
 
+            let layer_id = if transitioning {
+                // when transitioning, we need a new layer id otherwise the
+                // view transform will transform more things than we want
+                LayerId::new(Order::Foreground, ui.id().with("fg"))
+            } else {
+                // if we don't use the same layer id as the ui, then we
+                // will have scrollview MouseWheel scroll issues due to
+                // the way rect_contains_pointer works with overlapping
+                // layers
+                ui.layer_id()
+            };
             let response = render_fg(
                 ui,
-                transitioning,
+                id.with("fg"),
+                layer_id,
                 Some(Vec2::new(state.offset, 0.0)),
                 clip,
                 available_rect,
@@ -401,7 +422,7 @@ pub(crate) fn render_bg(
     translate_vec: Option<egui::Vec2>, // whether to translate the rendered route
     clip: egui::Rect,                  // rect that should be clipped
     available_rect: egui::Rect,        // rect of viewing area
-    alpha: u8,
+    alpha: Option<u8>,
     mut render_route: impl FnMut(&mut egui::Ui),
 ) -> egui::Rect {
     let id = ui.id();
@@ -420,10 +441,12 @@ pub(crate) fn render_bg(
 
     let res = ui.min_rect();
 
-    let fade_color = egui::Color32::from_black_alpha(alpha);
+    if let Some(alpha) = alpha {
+        let fade_color = egui::Color32::from_black_alpha(alpha);
 
-    ui.painter()
-        .rect_filled(clip, egui::CornerRadius::default(), fade_color);
+        ui.painter()
+            .rect_filled(clip, egui::CornerRadius::default(), fade_color);
+    }
 
     let Some(translate_vec) = translate_vec else {
         return res;
@@ -441,27 +464,16 @@ pub(crate) fn render_bg(
 
 pub(crate) fn render_fg<R>(
     ui: &mut egui::Ui,
-    transitioning: bool,
+    id: egui::Id,
+    layer_id: LayerId,
     translate_vec: Option<egui::Vec2>, // whether to translate the rendered route
     clip: egui::Rect,
     available_rect: egui::Rect,
     mut render_route: impl FnMut(&mut egui::Ui) -> R,
 ) -> R {
-    let layer_id = if transitioning {
-        // when transitioning, we need a new layer id otherwise the
-        // view transform will transform more things than we want
-        LayerId::new(Order::Foreground, ui.id().with("fg"))
-    } else {
-        // if we don't use the same layer id as the ui, then we
-        // will have scrollview MouseWheel scroll issues due to
-        // the way rect_contains_pointer works with overlapping
-        // layers
-        ui.layer_id()
-    };
-
     let mut ui = egui::Ui::new(
         ui.ctx().clone(),
-        ui.id(),
+        id,
         egui::UiBuilder::new()
             .layer_id(layer_id)
             .max_rect(available_rect),

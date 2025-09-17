@@ -54,6 +54,14 @@ impl<'a, Route: Clone> PopupSheet<'a, Route> {
         self
     }
 
+    fn id(&self, ui: &egui::Ui) -> egui::Id {
+        ui.id().with(("bottom_sheet", self.id_source))
+    }
+
+    pub fn drag_id(&self, ui: &egui::Ui) -> egui::Id {
+        self.id(ui).with("drag")
+    }
+
     /// Call this when you have just pushed a new value to your route and
     /// you want to animate to this new view
     pub fn navigating(mut self, navigating: bool) -> Self {
@@ -88,7 +96,7 @@ impl<'a, Route: Clone> PopupSheet<'a, Route> {
     where
         F: FnMut(&mut egui::Ui, NavUiType, &Route) -> R,
     {
-        let id = ui.id().with(("bottom_sheet", self.id_source));
+        let id = self.id(ui);
 
         let max_height = {
             let rect = ui.available_rect_before_wrap();
@@ -106,7 +114,7 @@ impl<'a, Route: Clone> PopupSheet<'a, Route> {
 
         let offset_from_rest = state.offset - max_height;
         let mut drag = Drag::new(
-            id,
+            self.drag_id(ui),
             crate::DragDirection::Vertical,
             content_rect,
             offset_from_rest,
@@ -142,7 +150,7 @@ impl<'a, Route: Clone> PopupSheet<'a, Route> {
             (t * 255.0).round() as u8
         };
 
-        let min_rect = render_bg(ui, None, bg_rect, bg_rect, alpha, |ui| {
+        let min_rect = render_bg(ui, None, bg_rect, bg_rect, Some(alpha), |ui| {
             show_route(ui, NavUiType::Title, self.bg_route);
             show_route(ui, NavUiType::Body, self.bg_route);
         });
@@ -158,7 +166,8 @@ impl<'a, Route: Clone> PopupSheet<'a, Route> {
 
         let response = render_fg(
             ui,
-            state.is_transitioning(),
+            id.with("fg"),
+            egui::LayerId::new(egui::Order::Foreground, id.with("fg")),
             None,
             content_rect,
             content_rect,
