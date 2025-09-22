@@ -217,7 +217,7 @@ impl<'a, Route: Clone> Nav<'a, Route> {
 
     pub fn show<F, R>(&self, ui: &mut egui::Ui, show_route: F) -> NavResponse<R>
     where
-        F: Fn(&mut egui::Ui, NavUiType, &Nav<Route>) -> R,
+        F: Fn(&mut egui::Ui, NavUiType, &Nav<Route>) -> RouteResponse<R>,
     {
         let mut show_route = show_route;
         self.show_internal(ui, &mut show_route)
@@ -225,14 +225,14 @@ impl<'a, Route: Clone> Nav<'a, Route> {
 
     pub fn show_mut<F, R>(&self, ui: &mut egui::Ui, mut show_route: F) -> NavResponse<R>
     where
-        F: FnMut(&mut egui::Ui, NavUiType, &Nav<Route>) -> R,
+        F: FnMut(&mut egui::Ui, NavUiType, &Nav<Route>) -> RouteResponse<R>,
     {
         self.show_internal(ui, &mut show_route)
     }
 
     fn show_internal<F, R>(&self, ui: &mut egui::Ui, show_route: &mut F) -> NavResponse<R>
     where
-        F: FnMut(&mut egui::Ui, NavUiType, &Nav<Route>) -> R,
+        F: FnMut(&mut egui::Ui, NavUiType, &Nav<Route>) -> RouteResponse<R>,
     {
         let id = self.id(ui);
         let mut state = State::load(ui.ctx(), id).unwrap_or_default();
@@ -265,7 +265,7 @@ impl<'a, Route: Clone> Nav<'a, Route> {
             drag = Some(cur_drag);
         }
 
-        let title_response = show_route(ui, NavUiType::Title, self);
+        let title_response = show_route(ui, NavUiType::Title, self).response;
 
         let available_rect = ui.available_rect_before_wrap();
 
@@ -322,7 +322,7 @@ impl<'a, Route: Clone> Nav<'a, Route> {
 
             let strength = 50.0; // fade strength (max is 255)
             let alpha = ((1.0 - (state.offset / available_rect.width())) * strength) as u8;
-            let min_rect = render_bg(
+            let bg_resp = render_bg(
                 ui,
                 Some(translate_vec),
                 clip,
@@ -330,10 +330,11 @@ impl<'a, Route: Clone> Nav<'a, Route> {
                 Some(alpha),
                 |ui| {
                     show_route(ui, NavUiType::Body, &bg_nav);
+                    None
                 },
             );
 
-            state.popped_min_rect = Some(min_rect);
+            state.popped_min_rect = Some(bg_resp.rect);
         }
 
         // foreground layer
@@ -437,8 +438,8 @@ pub(crate) fn render_bg(
     clip: egui::Rect,                  // rect that should be clipped
     available_rect: egui::Rect,        // rect of viewing area
     alpha: Option<u8>,
-    mut render_route: impl FnMut(&mut egui::Ui),
-) -> egui::Rect {
+    mut render_route: impl FnMut(&mut egui::Ui) -> Option<DragDirection>,
+) -> RenderBgResponse {
     let id = ui.id();
 
     let layer_id = LayerId::new(Order::Background, id);
@@ -451,7 +452,7 @@ pub(crate) fn render_bg(
     );
     ui.set_clip_rect(clip);
 
-    render_route(&mut ui);
+    let uses_drag = render_route(&mut ui);
 
     let res = ui.min_rect();
 
@@ -463,17 +464,31 @@ pub(crate) fn render_bg(
     }
 
     let Some(translate_vec) = translate_vec else {
-        return res;
+        return RenderBgResponse {
+            rect: res,
+            uses_drag,
+        };
     };
 
     if translate_vec == Vec2::ZERO {
-        return res;
+        return RenderBgResponse {
+            rect: res,
+            uses_drag,
+        };
     }
 
     ui.ctx()
         .transform_layer_shapes(ui.layer_id(), TSTransform::from_translation(translate_vec));
 
-    res
+    return RenderBgResponse {
+        rect: res,
+        uses_drag,
+    };
+}
+
+struct RenderBgResponse {
+    rect: egui::Rect,
+    uses_drag: Option<DragDirection>,
 }
 
 pub(crate) fn render_fg<R>(
@@ -483,7 +498,7 @@ pub(crate) fn render_fg<R>(
     translate_vec: Option<egui::Vec2>, // whether to translate the rendered route
     clip: egui::Rect,
     available_rect: egui::Rect,
-    mut render_route: impl FnMut(&mut egui::Ui) -> R,
+    mut render_route: impl FnMut(&mut egui::Ui) -> RouteResponse<R>,
 ) -> R {
     let mut ui = egui::Ui::new(
         ui.ctx().clone(),
@@ -494,7 +509,7 @@ pub(crate) fn render_fg<R>(
     );
     ui.set_clip_rect(clip);
 
-    let res = render_route(&mut ui);
+    let res = render_route(&mut ui).response;
 
     let Some(translate_vec) = translate_vec else {
         return res;
@@ -510,4 +525,9 @@ pub(crate) fn render_fg<R>(
     );
 
     res
+}
+
+pub struct RouteResponse<R> {
+    pub response: R,
+    pub uses_drag: Option<DragDirection>,
 }

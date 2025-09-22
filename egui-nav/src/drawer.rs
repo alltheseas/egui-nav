@@ -1,6 +1,6 @@
 use egui::{LayerId, Order};
 
-use crate::{render_bg, render_fg, Drag, DragDirection, NavAction, State};
+use crate::{render_bg, render_fg, Drag, DragDirection, NavAction, RouteResponse, State};
 
 pub struct NavDrawer<'a, Route: Clone> {
     id_source: Option<egui::Id>,
@@ -64,7 +64,7 @@ impl<'a, Route: Clone> NavDrawer<'a, Route> {
 
     pub fn show<F, R>(&self, ui: &mut egui::Ui, show_route: F) -> DrawerResponse<R>
     where
-        F: Fn(&mut egui::Ui, &Route) -> R,
+        F: Fn(&mut egui::Ui, &Route) -> RouteResponse<R>,
     {
         let mut show_route = show_route;
 
@@ -73,14 +73,14 @@ impl<'a, Route: Clone> NavDrawer<'a, Route> {
 
     pub fn show_mut<F, R>(&self, ui: &mut egui::Ui, mut show_route: F) -> DrawerResponse<R>
     where
-        F: FnMut(&mut egui::Ui, &Route) -> R,
+        F: FnMut(&mut egui::Ui, &Route) -> RouteResponse<R>,
     {
         self.show_internal(ui, &mut show_route)
     }
 
     fn show_internal<F, R>(&self, ui: &mut egui::Ui, show_route: &mut F) -> DrawerResponse<R>
     where
-        F: FnMut(&mut egui::Ui, &Route) -> R,
+        F: FnMut(&mut egui::Ui, &Route) -> RouteResponse<R>,
     {
         let id = self.id(ui);
         let mut state = State::load(ui.ctx(), id).unwrap_or_default();
@@ -115,7 +115,45 @@ impl<'a, Route: Clone> NavDrawer<'a, Route> {
             },
         );
 
-        if let Some(drag_action) = drag.handle(ui) {
+        if self.navigating {
+            if state.action != Some(NavAction::Navigating) {
+                // state.offset = 0.0;
+                state.action = Some(NavAction::Navigating);
+            }
+        } else if self.returning && !matches!(state.action, Some(NavAction::Returning(_))) {
+            state.offset = self.drawer_end_offset;
+            state.action = Some(NavAction::Returning(crate::ReturnType::Click));
+        }
+
+        let bg_uses_drag = if state.offset == rest {
+            show_route(ui, self.bg_route).uses_drag
+        } else {
+            let avail_rect = ui.available_rect_before_wrap();
+            let alpha = if state.offset <= rest {
+                None
+            } else {
+                let t = ((self.drawer_end_offset - state.offset) / self.drawer_end_offset)
+                    .clamp(0.0, 1.0);
+                Some(((1.0 - t) * 200.0).round() as u8)
+            };
+
+            render_bg(ui, None, bg_rect, avail_rect, alpha, |ui| {
+                show_route(ui, self.bg_route).uses_drag
+            })
+            .uses_drag
+        };
+
+        's: {
+            if let Some(bg_drag) = bg_uses_drag {
+                if bg_drag == DragDirection::LeftToRight {
+                    break 's;
+                }
+            }
+
+            let Some(drag_action) = drag.handle(ui) else {
+                break 's;
+            };
+
             println!("Drag action: {drag_action:?}");
             let nav_action = match drag_action {
                 crate::drag::DragAction::Dragging => NavAction::Dragging,
@@ -139,16 +177,6 @@ impl<'a, Route: Clone> NavDrawer<'a, Route> {
             state.action = Some(nav_action);
         }
 
-        if self.navigating {
-            if state.action != Some(NavAction::Navigating) {
-                // state.offset = 0.0;
-                state.action = Some(NavAction::Navigating);
-            }
-        } else if self.returning && !matches!(state.action, Some(NavAction::Returning(_))) {
-            state.offset = self.drawer_end_offset;
-            state.action = Some(NavAction::Returning(crate::ReturnType::Click));
-        }
-
         if let Some(action) = state.action {
             println!(
                 "processing nav action: {action:?}, focused: {}",
@@ -158,7 +186,6 @@ impl<'a, Route: Clone> NavDrawer<'a, Route> {
         }
 
         if state.offset == rest {
-            show_route(ui, self.bg_route);
             state.store(ui.ctx(), id);
             return DrawerResponse {
                 drawer_response: None,
@@ -166,18 +193,6 @@ impl<'a, Route: Clone> NavDrawer<'a, Route> {
             };
         }
 
-        let avail_rect = ui.available_rect_before_wrap();
-        let alpha = if state.offset <= rest {
-            None
-        } else {
-            let t =
-                ((self.drawer_end_offset - state.offset) / self.drawer_end_offset).clamp(0.0, 1.0);
-            Some(((1.0 - t) * 200.0).round() as u8)
-        };
-
-        let _ = render_bg(ui, None, bg_rect, avail_rect, alpha, |ui| {
-            show_route(ui, self.bg_route);
-        });
         let bg_resp = ui.allocate_rect(bg_rect, egui::Sense::click());
 
         if bg_resp.clicked() {
