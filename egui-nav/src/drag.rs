@@ -1,9 +1,7 @@
 use egui::Pos2;
 
-use crate::{NavAction, ReturnType};
-
-#[derive(Clone, PartialEq, Eq, Debug)]
-pub(crate) enum DragDirection {
+#[derive(Clone, PartialEq, Eq, Debug, Copy)]
+pub enum DragDirection {
     LeftToRight,
     RightToLeft,
     Vertical,
@@ -14,6 +12,7 @@ pub(crate) struct Drag {
     content_rect: egui::Rect,
     direction: DragDirection,
     offset_from_rest: f32,
+    threshold: f32, // if offset_from_rest is ABOVE threshold when drag is released, that means the drag MEETS the threshold
     found_capture: bool,
 }
 
@@ -23,6 +22,7 @@ impl Drag {
         direction: DragDirection,
         content_rect: egui::Rect,
         offset_from_rest: f32,
+        threshold: f32,
     ) -> Self {
         Drag {
             id,
@@ -30,31 +30,24 @@ impl Drag {
             direction,
             offset_from_rest,
             found_capture: false,
+            threshold,
         }
     }
 
-    fn content_size(&self) -> f32 {
-        match self.direction {
-            DragDirection::LeftToRight | DragDirection::RightToLeft => self.content_rect.width(),
-            DragDirection::Vertical => self.content_rect.height(),
-        }
-    }
-
-    pub(crate) fn handle(&mut self, ui: &mut egui::Ui) -> Option<NavAction> {
+    pub(crate) fn handle(&mut self, ui: &mut egui::Ui) -> Option<DragAction> {
         if ui.ctx().drag_stopped_id().is_some() {
             remove_state(ui.ctx());
 
             // we've stopped dragging, check to see if the offset is
             // passed a certain point, to determine if we should return
             // or animate back
-            return if self.offset_from_rest > self.content_size() / 4.0 {
-                Some(NavAction::Returning(ReturnType::Drag))
+            // return if self.offset_from_rest > self.content_size() / 4.0 {
+            return if self.offset_from_rest > 0.0 {
+                Some(DragAction::DragReleased {
+                    threshold_met: self.offset_from_rest > self.threshold,
+                })
             } else {
-                if self.offset_from_rest > 0.0 {
-                    Some(NavAction::Resetting)
-                } else {
-                    None
-                }
+                None
             };
         }
 
@@ -78,7 +71,7 @@ impl Drag {
         if cur_direction != self.direction {
             // the direction isn't desired for this widget, reset
             return if self.offset_from_rest > 0.0 {
-                Some(NavAction::Resetting)
+                Some(DragAction::DragUnrelated)
             } else {
                 None
             };
@@ -90,7 +83,7 @@ impl Drag {
         // Drag contents to transition back.
         // We must do this BEFORE adding content to the `Nav`,
         // or we will steal input from the widgets we contain.
-        Some(NavAction::Dragging)
+        Some(DragAction::Dragging)
     }
 
     pub(crate) fn should_capture(&self, ctx: &egui::Context) -> Option<CaptureAction> {
@@ -125,6 +118,13 @@ impl Drag {
         self.insert_state(ctx, new_state.clone());
         Some(new_state)
     }
+}
+
+#[derive(Debug)]
+pub enum DragAction {
+    Dragging,
+    DragReleased { threshold_met: bool },
+    DragUnrelated,
 }
 
 pub struct CaptureAction {

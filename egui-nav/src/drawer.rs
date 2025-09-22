@@ -85,24 +85,14 @@ impl<'a, Route: Clone> NavDrawer<'a, Route> {
         let id = self.id(ui);
         let mut state = State::load(ui.ctx(), id).unwrap_or_default();
 
-        let get_rest_or_max = |get_rest| {
-            if get_rest {
-                0.0
-            } else {
-                self.drawer_end_offset
-            }
-        };
-        let rest_offset = if self.drawer_focused {
-            get_rest_or_max(false)
-        } else {
-            get_rest_or_max(true)
-        };
+        let rest = 0.0;
+        let max = self.drawer_end_offset;
 
         let (drawer_rect, bg_rect) = ui
             .available_rect_before_wrap()
             .split_left_right_at_x(state.offset);
 
-        let drag_content_rect = if drawer_rect.width() > 0.0 {
+        let drag_content_rect = if drawer_rect.width() > rest {
             drawer_rect
         } else {
             ui.available_rect_before_wrap()
@@ -112,40 +102,62 @@ impl<'a, Route: Clone> NavDrawer<'a, Route> {
             self.drag_id(ui),
             DragDirection::LeftToRight,
             drag_content_rect,
-            state.offset - rest_offset,
+            if self.drawer_focused {
+                (state.offset - self.drawer_end_offset).abs()
+            } else {
+                state.offset
+            },
+            if self.drawer_focused {
+                max
+            } else {
+                // absolute_max / 10.0
+                max
+            },
         );
 
-        if let Some(action) = drag.handle(ui) {
-            state.action = Some(action);
+        if let Some(drag_action) = drag.handle(ui) {
+            println!("Drag action: {drag_action:?}");
+            let nav_action = match drag_action {
+                crate::drag::DragAction::Dragging => NavAction::Dragging,
+                crate::drag::DragAction::DragReleased { threshold_met } => {
+                    if self.drawer_focused {
+                        if threshold_met {
+                            NavAction::Returning(crate::ReturnType::Click)
+                        } else {
+                            NavAction::Resetting
+                        }
+                    } else {
+                        if threshold_met {
+                            NavAction::Navigating
+                        } else {
+                            NavAction::Returning(crate::ReturnType::Drag)
+                        }
+                    }
+                }
+                crate::drag::DragAction::DragUnrelated => NavAction::Resetting,
+            };
+            state.action = Some(nav_action);
         }
 
         if self.navigating {
             if state.action != Some(NavAction::Navigating) {
-                state.offset = rest_offset;
+                // state.offset = 0.0;
                 state.action = Some(NavAction::Navigating);
             }
         } else if self.returning && !matches!(state.action, Some(NavAction::Returning(_))) {
-            state.offset = rest_offset;
+            state.offset = self.drawer_end_offset;
             state.action = Some(NavAction::Returning(crate::ReturnType::Click));
         }
 
-        let max_offset = if self.drawer_focused {
-            get_rest_or_max(true)
-        } else {
-            get_rest_or_max(false)
-        };
-
         if let Some(action) = state.action {
-            action.handle(
-                ui,
-                &mut state,
-                DragDirection::LeftToRight,
-                rest_offset,
-                max_offset,
+            println!(
+                "processing nav action: {action:?}, focused: {}",
+                self.drawer_focused
             );
+            action.handle(ui, &mut state, DragDirection::LeftToRight, max, rest);
         }
 
-        if state.offset == rest_offset {
+        if state.offset == rest {
             show_route(ui, self.bg_route);
             state.store(ui.ctx(), id);
             return DrawerResponse {
@@ -155,13 +167,12 @@ impl<'a, Route: Clone> NavDrawer<'a, Route> {
         }
 
         let avail_rect = ui.available_rect_before_wrap();
-        let alpha = if state.offset <= rest_offset {
+        let alpha = if state.offset <= rest {
             None
         } else {
-            let t = ((max_offset - state.offset) / rest_offset)
-                .abs()
-                .clamp(0.0, 1.0);
-            Some((t * 200.0).round() as u8)
+            let t =
+                ((self.drawer_end_offset - state.offset) / self.drawer_end_offset).clamp(0.0, 1.0);
+            Some(((1.0 - t) * 200.0).round() as u8)
         };
 
         let _ = render_bg(ui, None, bg_rect, avail_rect, alpha, |ui| {

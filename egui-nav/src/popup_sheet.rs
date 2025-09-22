@@ -118,10 +118,22 @@ impl<'a, Route: Clone> PopupSheet<'a, Route> {
             crate::DragDirection::Vertical,
             content_rect,
             offset_from_rest,
+            content_rect.height() / 4.0,
         );
 
-        if let Some(action) = drag.handle(ui) {
-            state.action = Some(action);
+        if let Some(drag_action) = drag.handle(ui) {
+            let nav_action = match drag_action {
+                crate::drag::DragAction::Dragging => NavAction::Dragging,
+                crate::drag::DragAction::DragReleased { threshold_met } => {
+                    if threshold_met {
+                        NavAction::Returning(crate::ReturnType::Drag)
+                    } else {
+                        NavAction::Resetting
+                    }
+                }
+                crate::drag::DragAction::DragUnrelated => NavAction::Resetting,
+            };
+            state.action = Some(nav_action);
         }
 
         if self.navigating {

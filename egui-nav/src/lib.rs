@@ -1,4 +1,4 @@
-use drag::{Drag, DragDirection};
+use drag::Drag;
 use egui::{emath::TSTransform, vec2, LayerId, Order, Rect, Vec2};
 
 mod default_ui;
@@ -9,6 +9,7 @@ mod ui;
 mod util;
 
 pub use default_ui::{DefaultNavTitle, DefaultTitleResponse};
+pub use drag::DragDirection;
 pub use drawer::{DrawerResponse, NavDrawer};
 pub use popup_sheet::{Percent, PopupResponse, PopupSheet};
 pub use ui::NavUiType;
@@ -93,7 +94,7 @@ impl NavAction {
             }
             NavAction::Returning(return_type) => {
                 // We're returning, move the current view off to the
-                // right until the entire view is gone.
+                // returned_offset until the entire view is gone.
 
                 if let Some(offset) = spring_animate(state.offset, returned_offset, false) {
                     ui.ctx().request_repaint();
@@ -239,14 +240,27 @@ impl<'a, Route: Clone> Nav<'a, Route> {
         let mut drag = None;
         // We only handle dragging when there is more than 1 route
         if self.route.len() > 1 {
+            let content_rect = ui.available_rect_before_wrap();
             let mut cur_drag = Drag::new(
                 self.drag_id(ui),
                 DragDirection::LeftToRight,
-                ui.available_rect_before_wrap(),
+                content_rect,
                 state.offset,
+                content_rect.width() / 4.0,
             );
-            if let Some(action) = cur_drag.handle(ui) {
-                state.action = Some(action);
+            if let Some(drag_action) = cur_drag.handle(ui) {
+                let nav_action = match drag_action {
+                    crate::drag::DragAction::Dragging => NavAction::Dragging,
+                    crate::drag::DragAction::DragReleased { threshold_met } => {
+                        if threshold_met {
+                            NavAction::Returning(crate::ReturnType::Drag)
+                        } else {
+                            NavAction::Resetting
+                        }
+                    }
+                    crate::drag::DragAction::DragUnrelated => NavAction::Resetting,
+                };
+                state.action = Some(nav_action);
             }
             drag = Some(cur_drag);
         }
