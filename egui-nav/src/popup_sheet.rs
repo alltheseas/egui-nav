@@ -105,7 +105,7 @@ impl<'a, Route: Clone> PopupSheet<'a, Route> {
             .split_top_bottom_at_y(state.offset);
 
         let offset_from_rest = state.offset - max_height;
-        let drag = Drag::new(
+        let mut drag = Drag::new(
             id,
             crate::DragDirection::Vertical,
             content_rect,

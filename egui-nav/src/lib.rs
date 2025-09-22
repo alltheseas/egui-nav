@@ -234,17 +234,19 @@ impl<'a, Route: Clone> Nav<'a, Route> {
         let id = self.id(ui);
         let mut state = State::load(ui.ctx(), id).unwrap_or_default();
 
+        let mut drag = None;
         // We only handle dragging when there is more than 1 route
         if self.route.len() > 1 {
-            let drag = Drag::new(
+            let mut cur_drag = Drag::new(
                 self.drag_id(ui),
-                DragDirection::Horizontal,
+                DragDirection::LeftToRight,
                 ui.available_rect_before_wrap(),
                 state.offset,
             );
-            if let Some(action) = drag.handle(ui) {
+            if let Some(action) = cur_drag.handle(ui) {
                 state.action = Some(action);
             }
+            drag = Some(cur_drag);
         }
 
         let title_response = show_route(ui, NavUiType::Title, self);
@@ -265,7 +267,7 @@ impl<'a, Route: Clone> Nav<'a, Route> {
             action.handle(
                 ui,
                 &mut state,
-                DragDirection::Horizontal,
+                DragDirection::LeftToRight,
                 0.0,
                 available_rect.width(),
             );
@@ -312,7 +314,7 @@ impl<'a, Route: Clone> Nav<'a, Route> {
         }
 
         // foreground layer
-        {
+        let resp = {
             let clip = Rect::from_min_size(
                 available_rect.min,
                 vec2(
@@ -347,7 +349,19 @@ impl<'a, Route: Clone> Nav<'a, Route> {
                 title_response,
                 action: state.action,
             }
+        };
+
+        's: {
+            let Some(drag) = drag else {
+                break 's;
+            };
+
+            if let Some(capture) = drag.should_capture(ui.ctx()) {
+                capture.capture(ui, drag.id, available_rect);
+            }
         }
+
+        resp
     }
 }
 
