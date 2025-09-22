@@ -9,7 +9,7 @@ mod ui;
 mod util;
 
 pub use default_ui::{DefaultNavTitle, DefaultTitleResponse};
-pub use drawer::NavDrawer;
+pub use drawer::{DrawerResponse, NavDrawer};
 pub use popup_sheet::{Percent, PopupResponse, PopupSheet};
 pub use ui::NavUiType;
 
@@ -66,8 +66,8 @@ impl NavAction {
         ui: &mut egui::Ui,
         state: &mut State,
         drag_direction: DragDirection,
-        offset_at_rest: f32,
-        max_size: f32,
+        navigated_offset: f32,
+        returned_offset: f32,
     ) {
         match self {
             NavAction::Dragging => {
@@ -78,13 +78,13 @@ impl NavAction {
             }
             NavAction::Returned(_) => {
                 state.action = None;
-                state.offset = offset_at_rest;
+                // state.offset = navigated_offset; // we've already returned, reset the offset?
             }
             NavAction::Navigated => {
                 state.action = None;
             }
             NavAction::Navigating => {
-                if let Some(offset) = spring_animate(state.offset, offset_at_rest, true) {
+                if let Some(offset) = spring_animate(state.offset, navigated_offset, true) {
                     ui.ctx().request_repaint();
                     state.offset = offset;
                 } else {
@@ -95,11 +95,11 @@ impl NavAction {
                 // We're returning, move the current view off to the
                 // right until the entire view is gone.
 
-                if let Some(offset) = spring_animate(state.offset, max_size, false) {
+                if let Some(offset) = spring_animate(state.offset, returned_offset, false) {
                     ui.ctx().request_repaint();
                     state.offset = offset;
                 } else {
-                    state.offset = max_size;
+                    state.offset = returned_offset;
                     state.action = Some(NavAction::Returned(return_type));
                 }
             }
@@ -107,8 +107,8 @@ impl NavAction {
                 // If we're resetting, animate the current offset
                 // back to the current view
 
-                let left = state.offset > offset_at_rest;
-                if let Some(offset) = spring_animate(state.offset, offset_at_rest, left) {
+                let left = state.offset > navigated_offset;
+                if let Some(offset) = spring_animate(state.offset, navigated_offset, left) {
                     ui.ctx().request_repaint();
                     state.offset = offset;
                 } else {

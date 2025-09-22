@@ -98,6 +98,14 @@ impl Drag {
             ctx.dragged_id().is_none() && ctx.input(|i| i.pointer.is_decidedly_dragging());
         // we are dragging, but the drag id has not been set. This indicates the fg widget doesn't care about dragging, so we should capture it
 
+        if self.found_capture {
+            println!("Capture due to Drag::handle");
+        }
+
+        if capture_drag {
+            println!("Capture due to no fg drag");
+        }
+
         if self.found_capture || capture_drag {
             Some(CaptureAction {
                 also_capture_drag_id: capture_drag,
@@ -129,6 +137,8 @@ impl CaptureAction {
             ui.ctx().stop_dragging();
             return;
         }
+
+        println!("CAPTURING");
 
         let _ = ui.interact(rect, id, egui::Sense::drag());
         if self.also_capture_drag_id {

@@ -1,6 +1,6 @@
 use egui::{LayerId, Order};
 
-use crate::{render_bg, render_fg, Drag, DragDirection, NavAction, PopupResponse, State};
+use crate::{render_bg, render_fg, Drag, DragDirection, NavAction, State};
 
 pub struct NavDrawer<'a, Route: Clone> {
     id_source: Option<egui::Id>,
@@ -62,7 +62,7 @@ impl<'a, Route: Clone> NavDrawer<'a, Route> {
         self.id(ui).with("drag")
     }
 
-    pub fn show<F, R>(&self, ui: &mut egui::Ui, show_route: F) -> PopupResponse<R>
+    pub fn show<F, R>(&self, ui: &mut egui::Ui, show_route: F) -> DrawerResponse<R>
     where
         F: Fn(&mut egui::Ui, &Route) -> R,
     {
@@ -71,24 +71,31 @@ impl<'a, Route: Clone> NavDrawer<'a, Route> {
         self.show_internal(ui, &mut show_route)
     }
 
-    pub fn show_mut<F, R>(&self, ui: &mut egui::Ui, mut show_route: F) -> PopupResponse<R>
+    pub fn show_mut<F, R>(&self, ui: &mut egui::Ui, mut show_route: F) -> DrawerResponse<R>
     where
         F: FnMut(&mut egui::Ui, &Route) -> R,
     {
         self.show_internal(ui, &mut show_route)
     }
 
-    fn show_internal<F, R>(&self, ui: &mut egui::Ui, show_route: &mut F) -> PopupResponse<R>
+    fn show_internal<F, R>(&self, ui: &mut egui::Ui, show_route: &mut F) -> DrawerResponse<R>
     where
         F: FnMut(&mut egui::Ui, &Route) -> R,
     {
         let id = self.id(ui);
         let mut state = State::load(ui.ctx(), id).unwrap_or_default();
 
+        let get_rest_or_max = |get_rest| {
+            if get_rest {
+                0.0
+            } else {
+                self.drawer_end_offset
+            }
+        };
         let rest_offset = if self.drawer_focused {
-            self.drawer_end_offset
+            get_rest_or_max(false)
         } else {
-            0.0
+            get_rest_or_max(true)
         };
 
         let (drawer_rect, bg_rect) = ui
@@ -114,7 +121,7 @@ impl<'a, Route: Clone> NavDrawer<'a, Route> {
 
         if self.navigating {
             if state.action != Some(NavAction::Navigating) {
-                state.offset = 0.0;
+                state.offset = rest_offset;
                 state.action = Some(NavAction::Navigating);
             }
         } else if self.returning && !matches!(state.action, Some(NavAction::Returning(_))) {
@@ -123,9 +130,9 @@ impl<'a, Route: Clone> NavDrawer<'a, Route> {
         }
 
         let max_offset = if self.drawer_focused {
-            0.0
+            get_rest_or_max(true)
         } else {
-            self.drawer_end_offset
+            get_rest_or_max(false)
         };
 
         if let Some(action) = state.action {
@@ -138,7 +145,17 @@ impl<'a, Route: Clone> NavDrawer<'a, Route> {
             );
         }
 
-        let alpha = if state.offset <= 0.0 {
+        if state.offset == rest_offset {
+            show_route(ui, self.bg_route);
+            state.store(ui.ctx(), id);
+            return DrawerResponse {
+                drawer_response: None,
+                action: state.action,
+            };
+        }
+
+        let avail_rect = ui.available_rect_before_wrap();
+        let alpha = if state.offset <= rest_offset {
             None
         } else {
             let t = ((max_offset - state.offset) / rest_offset)
@@ -147,20 +164,16 @@ impl<'a, Route: Clone> NavDrawer<'a, Route> {
             Some((t * 200.0).round() as u8)
         };
 
-        let avail_rect = ui.available_rect_before_wrap();
         let _ = render_bg(ui, None, bg_rect, avail_rect, alpha, |ui| {
             show_route(ui, self.bg_route);
         });
-
         let bg_resp = ui.allocate_rect(bg_rect, egui::Sense::click());
 
         if bg_resp.clicked() {
             state.action = Some(NavAction::Returning(crate::ReturnType::Click));
         }
 
-        state.store(ui.ctx(), id);
-
-        let response = render_fg(
+        let drawer_response = Some(render_fg(
             ui,
             id.with("fg"),
             LayerId::new(Order::Foreground, id.with("fg")),
@@ -168,15 +181,18 @@ impl<'a, Route: Clone> NavDrawer<'a, Route> {
             drawer_rect,
             drawer_rect,
             |ui| show_route(ui, self.drawer_route),
-        );
+        ));
 
-        if let Some(capture) = drag.should_capture(ui.ctx()) {
-            capture.capture(ui, drag.id, avail_rect);
-        }
+        state.store(ui.ctx(), id);
 
-        PopupResponse {
-            response,
+        DrawerResponse {
+            drawer_response,
             action: state.action,
         }
     }
+}
+
+pub struct DrawerResponse<R> {
+    pub drawer_response: Option<R>,
+    pub action: Option<NavAction>,
 }
