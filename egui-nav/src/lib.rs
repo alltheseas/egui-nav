@@ -472,6 +472,7 @@ pub(crate) fn render_bg(
         ui.ctx().clone(),
         id,
         egui::UiBuilder::new()
+            .style(ui.style().clone())
             .layer_id(layer_id)
             .max_rect(available_rect),
     );
@@ -529,6 +530,7 @@ pub(crate) fn render_fg<R>(
         ui.ctx().clone(),
         id,
         egui::UiBuilder::new()
+            .style(ui.style().clone())
             .layer_id(layer_id)
             .max_rect(available_rect),
     );
