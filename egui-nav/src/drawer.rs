@@ -116,7 +116,7 @@ impl<'a, Route: Clone> NavDrawer<'a, Route> {
                 Some(((1.0 - t) * 200.0).round() as u8)
             };
 
-            render_bg(ui, None, bg_rect, avail_rect, alpha, |ui| {
+            render_bg(ui, None, None, bg_rect, avail_rect, alpha, |ui| {
                 show_route(ui, self.bg_route).can_take_drag_from
             })
             .can_take_drag_from

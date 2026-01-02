@@ -177,7 +177,7 @@ impl<'a, Route: Clone> PopupSheet<'a, Route> {
             (t * 255.0).round() as u8
         };
 
-        let bg_resp = render_bg(ui, None, bg_rect, bg_rect, Some(alpha), |ui| {
+        let bg_resp = render_bg(ui, None, None, bg_rect, bg_rect, Some(alpha), |ui| {
             show_route(ui, NavUiType::Title, self.bg_route);
             show_route(ui, NavUiType::Body, self.bg_route);
             Vec::new()

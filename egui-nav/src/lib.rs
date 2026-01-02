@@ -323,6 +323,7 @@ impl<'a, Route: Clone> Nav<'a, Route> {
             let alpha = ((1.0 - (state.offset / available_rect.width())) * strength) as u8;
             let bg_resp = render_bg(
                 ui,
+                Some("nav_bg"),
                 Some(translate_vec),
                 clip,
                 available_rect,
@@ -457,15 +458,29 @@ fn spring_animate(offset: f32, target: f32, left: bool) -> Option<f32> {
     }
 }
 
+/// Renders the background layer during navigation transitions.
+///
+/// # Widget ID Scoping
+///
+/// The `id_scope` parameter prevents widget ID collisions between background and
+/// foreground layers during transitions. When `Some("scope")`, background widget IDs
+/// are prefixed to avoid conflicts with foreground widgets that have the same ID.
+///
+/// - **Nav**: Pass `Some("nav_bg")` - background is sliding away, scroll state loss is acceptable
+/// - **PopupSheet/NavDrawer**: Pass `None` - background stays visible, preserve scroll state
 pub(crate) fn render_bg(
     ui: &mut egui::Ui,
-    translate_vec: Option<egui::Vec2>, // whether to translate the rendered route
-    clip: egui::Rect,                  // rect that should be clipped
-    available_rect: egui::Rect,        // rect of viewing area
+    id_scope: Option<&str>,
+    translate_vec: Option<egui::Vec2>,
+    clip: egui::Rect,
+    available_rect: egui::Rect,
     alpha: Option<u8>,
     mut render_route: impl FnMut(&mut egui::Ui) -> Vec<egui::Id>,
 ) -> RenderBgResponse {
-    let id = ui.id();
+    let id = match id_scope {
+        Some(scope) => ui.id().with(scope),
+        None => ui.id(),
+    };
 
     let layer_id = LayerId::new(Order::Background, id);
     let mut ui = egui::Ui::new(
