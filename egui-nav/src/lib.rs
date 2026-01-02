@@ -468,6 +468,7 @@ fn spring_animate(offset: f32, target: f32, left: bool) -> Option<f32> {
 ///
 /// - **Nav**: Pass `Some("nav_bg")` - background is sliding away, scroll state loss is acceptable
 /// - **PopupSheet/NavDrawer**: Pass `None` - background stays visible, preserve scroll state
+#[cfg_attr(feature = "profiling", profiling::function)]
 pub(crate) fn render_bg(
     ui: &mut egui::Ui,
     id_scope: Option<&str>,
@@ -532,11 +533,12 @@ struct RenderBgResponse {
     can_take_drag_from: Vec<egui::Id>,
 }
 
+#[cfg_attr(feature = "profiling", profiling::function)]
 pub(crate) fn render_fg<R>(
     ui: &mut egui::Ui,
     id: egui::Id,
     layer_id: LayerId,
-    translate_vec: Option<egui::Vec2>, // whether to translate the rendered route
+    translate_vec: Option<egui::Vec2>,
     clip: egui::Rect,
     available_rect: egui::Rect,
     mut render_route: impl FnMut(&mut egui::Ui) -> RouteResponse<R>,
