@@ -226,8 +226,16 @@ impl<'a, Route: Clone> Nav<'a, Route> {
         self
     }
 
+    /// Returns the ID used for state storage.
+    ///
+    /// When `id_source` is provided, returns a stable ID independent of the UI
+    /// context. This ensures consistent state storage when content is rendered
+    /// in different contexts (e.g., inside `render_bg` vs directly).
     fn id(&self, ui: &egui::Ui) -> egui::Id {
-        ui.id().with(("nav", self.id_source))
+        match self.id_source {
+            Some(id_source) => egui::Id::new("nav").with(id_source),
+            None => ui.id().with("nav"),
+        }
     }
 
     pub fn drag_id(&self, ui: &egui::Ui) -> egui::Id {
