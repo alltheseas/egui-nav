@@ -473,7 +473,10 @@ pub(crate) fn render_bg(
     alpha: Option<u8>,
     mut render_route: impl FnMut(&mut egui::Ui) -> Vec<egui::Id>,
 ) -> RenderBgResponse {
-    let id = ui.id();
+    // Use a unique ID for the background layer child UI to prevent widget ID
+    // collisions when the same content is rendered in both background and
+    // foreground layers (e.g., in NavDrawer scenarios).
+    let id = ui.id().with("bg");
 
     let layer_id = LayerId::new(Order::Background, id);
     let mut ui = egui::Ui::new(
